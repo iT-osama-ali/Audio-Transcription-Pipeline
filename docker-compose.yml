@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   redis:
     image: redis:7.4-alpine
@@ -21,7 +19,8 @@ services:
       - .:/app
       - uploads:/app/uploads
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
@@ -37,7 +36,8 @@ services:
       - .:/app
       - uploads:/app/uploads
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
