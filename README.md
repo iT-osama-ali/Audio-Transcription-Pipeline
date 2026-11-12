@@ -15,6 +15,7 @@ A backend service that accepts audio files, transcribes speech to text using **F
 - [Running Tests](#running-tests)
 - [API Reference](#api-reference)
 - [Configuration Reference](#configuration-reference)
+- [Limitations and Next Steps](#limitations-and-next-steps)
 
 ---
 
@@ -52,6 +53,10 @@ SQLite (job metadata + transcript segments)
 3. On success: status → `Completed`, segments written to DB.
 4. On failure: retried up to 3 times with exponential back-off; permanent audio errors skip retries and go straight to `Failed`.
 5. Client polls `GET /api/transcriptions/{id}` until `Completed`, then fetches `GET /api/transcriptions/{id}/result`.
+
+**Concurrent uploads:**
+
+Every uploaded file is saved under a server-generated UUID filename, so there are no collisions between simultaneous uploads. Each upload creates one independent job row in the database, meaning uploads never block each other at the API layer. The number of jobs processed in parallel is controlled by `WORKER_CONCURRENCY`. The main concurrency bottleneck in this MVP is SQLite, which serializes writes — switching `DATABASE_URL` to PostgreSQL removes that constraint for high-throughput deployments.
 
 ---
 
@@ -152,8 +157,8 @@ audio-transcription-pipeline/
 ### 1. Clone and create a virtual environment
 
 ```bash
-git clone <repo-url>
-cd audio-transcription-pipeline
+git clone https://github.com/iT-osama-ali/Audio-Transcription-Pipeline.git
+cd Audio-Transcription-Pipeline
 python -m venv venv
 
 # Windows
@@ -375,3 +380,19 @@ All settings are read from environment variables or a `.env` file.
 | `WORKER_CONCURRENCY`       | `2`                          | Celery worker processes                  |
 | `MAX_RETRY_ATTEMPTS`       | `3`                          | Max retries for transient failures       |
 | `RETRY_BACKOFF_BASE_SECONDS` | `60`                       | Base delay for exponential back-off      |
+
+---
+
+## Limitations and Next Steps
+
+**Single-machine storage**
+SQLite and the local `uploads/` directory only work on one machine. A multi-instance deployment needs PostgreSQL (one `DATABASE_URL` change via SQLAlchemy) and an object store like S3 or Azure Blob Storage (one `StorageService` swap).
+
+**Jobs stuck in Processing after a worker crash**
+The worker sets `task_acks_late = True`, so a task is re-queued if the worker dies mid-job. However, if the worker crashes after acknowledging but before updating the DB, the job stays in `Processing` indefinitely. A periodic "reaper" task that resets stale `Processing` jobs back to `Pending` would close this gap.
+
+**No manual re-queue endpoint**
+Once a job reaches `Failed` there is no API endpoint to retry it. Currently the only options are submitting a new upload or updating the DB directly. A `POST /api/transcriptions/{id}/retry` endpoint would be a clean addition.
+
+**No authentication**
+All endpoints are open. This is intentional for the MVP, but any public deployment needs at minimum an API key header or an OAuth 2.0 layer in front of the routes.
